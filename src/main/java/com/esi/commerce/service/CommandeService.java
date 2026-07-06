@@ -10,10 +10,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Service unique gérant produits, clients et commandes.
- * NB : classe volontairement non refactorée (baseline du projet e-commerce).
+ * ÉTAPE INTERMÉDIAIRE (2/3) du refactoring :
+ * - Bugs corrigés (restitution de stock exacte, division par zéro, montant négatif)
+ * - Constantes magiques extraites
+ * - Duplication éliminée : genererDevis(), passerCommande() et modifierCommande()
+ *   partagent maintenant les mêmes méthodes privées de calcul
+ * PAS ENCORE fait (voir version finale) : séparation en plusieurs services (SRP),
+ * exceptions métier dédiées, tests unitaires.
  */
 public class CommandeService {
+
+    private static final double REMISE_VIP_BRONZE = 0.10;
+    private static final double REMISE_VIP_ARGENT = 0.15;
+    private static final double REMISE_VIP_OR = 0.20;
+    private static final int SEUIL_POINTS_ARGENT = 500;
+    private static final int SEUIL_POINTS_OR = 1000;
+    private static final double REMISE_GROS_MONTANT = 0.05;
+    private static final double SEUIL_GROS_MONTANT = 500;
+    private static final int SEUIL_POINTS_FIDELITE = 100;
+    private static final double REMISE_FIDELITE = 15;
+    private static final int DIVISEUR_POINTS = 10;
 
     private List<Produit> produits = new ArrayList<>();
     private List<Client> clients = new ArrayList<>();
@@ -22,125 +38,23 @@ public class CommandeService {
     public void ajouterProduit(Produit p) { produits.add(p); }
     public void ajouterClient(Client c) { clients.add(c); }
 
-    // Méthode 1 : passage de commande - complexité très élevée, plusieurs bugs
     public Commande passerCommande(String clientId, Map<String, Integer> panier, String codePromo) {
-        Client client = null;
-        for (int i = 0; i < clients.size(); i++) {
-            if (clients.get(i).getId().equals(clientId)) {
-                client = clients.get(i);
-            }
-        }
+        Client client = trouverClient(clientId);
         if (client == null) {
             System.out.println("Client introuvable");
             return null;
         }
 
         Commande commande = new Commande("C" + (commandes.size() + 1), client);
-        double sousTotal = 0;
-        int poidsTotal = 0;
+        double[] sousTotalEtPoids = remplirLignes(panier, commande);
+        double sousTotal = sousTotalEtPoids[0];
+        int poidsTotal = (int) sousTotalEtPoids[1];
 
-        for (Map.Entry<String, Integer> entree : panier.entrySet()) {
-            Produit produit = null;
-            for (int i = 0; i < produits.size(); i++) {
-                if (produits.get(i).getId().equals(entree.getKey())) {
-                    produit = produits.get(i);
-                }
-            }
-            if (produit != null) {
-                int quantite = entree.getValue();
-                // BUG : aucune vérification que quantite > 0, une quantité négative
-                // augmente le stock au lieu de le diminuer
-                if (produit.getStock() >= quantite) {
-                    produit.setStock(produit.getStock() - quantite);
-                    sousTotal = sousTotal + produit.getPrix() * quantite;
-                    poidsTotal = poidsTotal + quantite;
-                    commande.ajouterLigne(new LigneCommande(produit, quantite));
-                } else {
-                    System.out.println("Stock insuffisant pour " + produit.getNom());
-                }
-            }
-        }
+        double total = calculerMontantFinal(client, sousTotal, codePromo);
+        total += calculerFraisLivraison(poidsTotal, client);
+        total = Math.max(0, total);
 
-        double total = sousTotal;
-
-        // Paliers de fidélité multiples (Bronze / Argent / Or / Platine) au lieu d'un simple VIP
-        if (client.isEstVIP()) {
-            if (client.getPointsFidelite() > 1000) {
-                if (sousTotal > 500) {
-                    total = total - (total * 0.20) - (total * 0.05);
-                } else {
-                    total = total - (total * 0.20);
-                }
-            } else if (client.getPointsFidelite() > 500) {
-                if (sousTotal > 500) {
-                    total = total - (total * 0.15) - (total * 0.05);
-                } else {
-                    total = total - (total * 0.15);
-                }
-            } else {
-                if (sousTotal > 500) {
-                    total = total - (total * 0.10) - (total * 0.05);
-                } else {
-                    total = total - (total * 0.10);
-                }
-            }
-        } else {
-            if (sousTotal > 500) {
-                total = total - (total * 0.05);
-            }
-        }
-
-        if (codePromo != null) {
-            if (codePromo.equals("PROMO10")) {
-                total = total - 10;
-            } else if (codePromo.equals("PROMO20")) {
-                total = total - 20;
-            } else if (codePromo.equals("PROMO50")) {
-                total = total - 50;
-            } else if (codePromo.equals("PROMONOEL")) {
-                if (sousTotal > 200) {
-                    total = total - 30;
-                } else {
-                    total = total - 15;
-                }
-            }
-        }
-
-        if (client.getPointsFidelite() >= 100) {
-            total = total - 15;
-            client.setPointsFidelite(client.getPointsFidelite() - 100);
-        }
-
-        // Frais de livraison selon le poids, avec paliers imbriqués (nouvelle source de complexité)
-        double fraisLivraison;
-        if (poidsTotal <= 1) {
-            fraisLivraison = 0;
-        } else if (poidsTotal <= 5) {
-            if (client.isEstVIP()) {
-                fraisLivraison = 2.5;
-            } else {
-                fraisLivraison = 5;
-            }
-        } else if (poidsTotal <= 10) {
-            if (client.isEstVIP()) {
-                fraisLivraison = 5;
-            } else {
-                fraisLivraison = 10;
-            }
-        } else {
-            if (client.isEstVIP()) {
-                fraisLivraison = 8;
-            } else {
-                fraisLivraison = 15;
-            }
-        }
-        total = total + fraisLivraison;
-        // BUG : le total peut devenir négatif si plusieurs réductions se cumulent
-        // (aucun plancher à 0 n'est appliqué)
-
-        int nouveauxPoints = (int) (sousTotal / 10);
-        client.setPointsFidelite(client.getPointsFidelite() + nouveauxPoints);
-
+        client.setPointsFidelite(client.getPointsFidelite() + (int) (sousTotal / DIVISEUR_POINTS));
         commande.setMontantTotal(total);
         commande.setCodePromo(codePromo);
         commande.setStatut("VALIDEE");
@@ -148,156 +62,150 @@ public class CommandeService {
         return commande;
     }
 
-    // Méthode bis : génère un devis - duplique presque intégralement la logique de tarification
-    // de passerCommande() (source de duplication supplémentaire détectée par SonarQube)
+    // Ne duplique plus le calcul : réutilise calculerMontantFinal() comme passerCommande()
     public double genererDevis(String clientId, Map<String, Integer> panier, String codePromo) {
-        Client client = null;
-        for (int i = 0; i < clients.size(); i++) {
-            if (clients.get(i).getId().equals(clientId)) {
-                client = clients.get(i);
-            }
-        }
+        Client client = trouverClient(clientId);
         if (client == null) {
             System.out.println("Client introuvable");
             return 0;
         }
-
         double sousTotal = 0;
         for (Map.Entry<String, Integer> entree : panier.entrySet()) {
-            Produit produit = null;
-            for (int i = 0; i < produits.size(); i++) {
-                if (produits.get(i).getId().equals(entree.getKey())) {
-                    produit = produits.get(i);
-                }
-            }
-            if (produit != null) {
-                int quantite = entree.getValue();
-                if (produit.getStock() >= quantite) {
-                    sousTotal = sousTotal + produit.getPrix() * quantite;
-                }
+            Produit produit = trouverProduit(entree.getKey());
+            int quantite = entree.getValue();
+            if (produit != null && produit.getStock() >= quantite) {
+                sousTotal += produit.getPrix() * quantite;
             }
         }
-
-        double total = sousTotal;
-        if (client.isEstVIP()) {
-            if (client.getPointsFidelite() > 1000) {
-                if (sousTotal > 500) {
-                    total = total - (total * 0.20) - (total * 0.05);
-                } else {
-                    total = total - (total * 0.20);
-                }
-            } else if (client.getPointsFidelite() > 500) {
-                if (sousTotal > 500) {
-                    total = total - (total * 0.15) - (total * 0.05);
-                } else {
-                    total = total - (total * 0.15);
-                }
-            } else {
-                if (sousTotal > 500) {
-                    total = total - (total * 0.10) - (total * 0.05);
-                } else {
-                    total = total - (total * 0.10);
-                }
-            }
-        } else {
-            if (sousTotal > 500) {
-                total = total - (total * 0.05);
-            }
-        }
-
-        if (codePromo != null) {
-            if (codePromo.equals("PROMO10")) {
-                total = total - 10;
-            } else if (codePromo.equals("PROMO20")) {
-                total = total - 20;
-            } else if (codePromo.equals("PROMO50")) {
-                total = total - 50;
-            }
-        }
-        return total;
+        return Math.max(0, calculerMontantFinal(client, sousTotal, codePromo));
     }
 
-    // Méthode 2 : duplique presque intégralement le calcul de prix de passerCommande
     public boolean modifierCommande(String commandeId, Map<String, Integer> nouveauPanier) {
-        Commande commande = null;
-        for (int i = 0; i < commandes.size(); i++) {
-            if (commandes.get(i).getId().equals(commandeId)) {
-                commande = commandes.get(i);
-            }
-        }
+        Commande commande = trouverCommande(commandeId);
         if (commande == null) {
             return false;
         }
-
-        double sousTotal = 0;
-        for (Map.Entry<String, Integer> entree : nouveauPanier.entrySet()) {
-            Produit produit = null;
-            for (int i = 0; i < produits.size(); i++) {
-                if (produits.get(i).getId().equals(entree.getKey())) {
-                    produit = produits.get(i);
-                }
-            }
-            if (produit != null) {
-                int quantite = entree.getValue();
-                if (produit.getStock() >= quantite) {
-                    sousTotal = sousTotal + produit.getPrix() * quantite;
-                }
-            }
-        }
-
-        double total = sousTotal;
-        Client client = commande.getClient();
-        if (client.isEstVIP()) {
-            if (sousTotal > 500) {
-                total = total - (total * 0.10) - (total * 0.05);
-            } else {
-                total = total - (total * 0.10);
-            }
-        } else {
-            if (sousTotal > 500) {
-                total = total - (total * 0.05);
-            }
-        }
-
-        commande.setMontantTotal(total);
+        double[] sousTotalEtPoids = remplirLignes(nouveauPanier, commande);
+        double total = calculerMontantFinal(commande.getClient(), sousTotalEtPoids[0], commande.getCodePromo());
+        commande.setMontantTotal(Math.max(0, total));
         return true;
     }
 
-    // Méthode 3 : annulation - BUG de restitution du stock (incrémente de 1 au lieu de la quantité)
     public boolean annulerCommande(String commandeId) {
-        Commande commande = null;
-        for (int i = 0; i < commandes.size(); i++) {
-            if (commandes.get(i).getId().equals(commandeId)) {
-                commande = commandes.get(i);
-            }
-        }
+        Commande commande = trouverCommande(commandeId);
         if (commande == null) {
             return false;
         }
         if (commande.getStatut().equals("VALIDEE")) {
             for (LigneCommande ligne : commande.getLignes()) {
-                // BUG : devrait restituer ligne.getQuantite(), pas 1 unité fixe
-                ligne.getProduit().setStock(ligne.getProduit().getStock() + 1);
+                // Bug corrigé : on restitue la quantité exacte vendue.
+                ligne.getProduit().setStock(ligne.getProduit().getStock() + ligne.getQuantite());
             }
         }
         commande.setStatut("ANNULEE");
         return true;
     }
 
-    // Méthode 4 : BUG de division par zéro si le client n'a aucune commande
     public double calculerMoyennePanier(String clientId) {
         double total = 0;
         int count = 0;
         for (Commande c : commandes) {
             if (c.getClient().getId().equals(clientId)) {
-                total = total + c.getMontantTotal();
-                count = count + 1;
+                total += c.getMontantTotal();
+                count++;
             }
         }
-        return total / count; // division par zéro possible si count == 0
+        // Bug corrigé : ne divise plus par zéro si le client n'a aucune commande.
+        return count == 0 ? 0.0 : total / count;
     }
 
     public List<Produit> getProduits() { return produits; }
     public List<Client> getClients() { return clients; }
     public List<Commande> getCommandes() { return commandes; }
+
+    // ---- Méthodes privées factorisées : plus aucune duplication entre
+    //      passerCommande(), genererDevis() et modifierCommande() ----
+
+    private double[] remplirLignes(Map<String, Integer> panier, Commande commande) {
+        double sousTotal = 0;
+        int poidsTotal = 0;
+        for (Map.Entry<String, Integer> entree : panier.entrySet()) {
+            Produit produit = trouverProduit(entree.getKey());
+            int quantite = entree.getValue();
+            if (produit != null && quantite > 0 && produit.getStock() >= quantite) {
+                produit.setStock(produit.getStock() - quantite);
+                sousTotal += produit.getPrix() * quantite;
+                poidsTotal += quantite;
+                commande.ajouterLigne(new LigneCommande(produit, quantite));
+            }
+        }
+        return new double[] { sousTotal, poidsTotal };
+    }
+
+    private double calculerMontantFinal(Client client, double sousTotal, String codePromo) {
+        double total = appliquerRemiseVipEtVolume(client, sousTotal);
+        total = appliquerCodePromo(total, codePromo);
+        total = appliquerRemiseFidelite(client, total);
+        return total;
+    }
+
+    private double appliquerRemiseVipEtVolume(Client client, double sousTotal) {
+        double remise = 0;
+        if (client.isEstVIP()) {
+            if (client.getPointsFidelite() > SEUIL_POINTS_OR) {
+                remise = REMISE_VIP_OR;
+            } else if (client.getPointsFidelite() > SEUIL_POINTS_ARGENT) {
+                remise = REMISE_VIP_ARGENT;
+            } else {
+                remise = REMISE_VIP_BRONZE;
+            }
+        }
+        if (sousTotal > SEUIL_GROS_MONTANT) {
+            remise += REMISE_GROS_MONTANT;
+        }
+        return sousTotal - (sousTotal * remise);
+    }
+
+    private double appliquerCodePromo(double total, String codePromo) {
+        if (codePromo == null) {
+            return total;
+        }
+        return switch (codePromo) {
+            case "PROMO10" -> total - 10;
+            case "PROMO20" -> total - 20;
+            case "PROMO50" -> total - 50;
+            case "PROMONOEL" -> total - (total > 200 ? 30 : 15);
+            default -> total;
+        };
+    }
+
+    private double appliquerRemiseFidelite(Client client, double total) {
+        if (client.getPointsFidelite() >= SEUIL_POINTS_FIDELITE) {
+            client.setPointsFidelite(client.getPointsFidelite() - SEUIL_POINTS_FIDELITE);
+            return total - REMISE_FIDELITE;
+        }
+        return total;
+    }
+
+    private double calculerFraisLivraison(int poidsTotal, Client client) {
+        if (poidsTotal <= 1) return 0;
+        if (poidsTotal <= 5) return client.isEstVIP() ? 2.5 : 5;
+        if (poidsTotal <= 10) return client.isEstVIP() ? 5 : 10;
+        return client.isEstVIP() ? 8 : 15;
+    }
+
+    private Client trouverClient(String clientId) {
+        for (Client c : clients) if (c.getId().equals(clientId)) return c;
+        return null;
+    }
+
+    private Produit trouverProduit(String produitId) {
+        for (Produit p : produits) if (p.getId().equals(produitId)) return p;
+        return null;
+    }
+
+    private Commande trouverCommande(String commandeId) {
+        for (Commande c : commandes) if (c.getId().equals(commandeId)) return c;
+        return null;
+    }
 }

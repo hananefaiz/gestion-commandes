@@ -1,0 +1,7 @@
+com\esi\commerce\model\Produit.class
+com\esi\commerce\CommerceApplication.class
+com\esi\commerce\model\Client.class
+com\esi\commerce\model\Commande.class
+com\esi\commerce\controller\CommandeController.class
+com\esi\commerce\service\CommandeService.class
+com\esi\commerce\model\LigneCommande.class
