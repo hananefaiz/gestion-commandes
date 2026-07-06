@@ -43,17 +43,19 @@ class CommandeServiceTest {
     }
 
     @Test
-    void passerCommande_vipArgent_appliqueRemiseDe15Pourcent() {
+    void passerCommande_vipArgent_appliqueRemiseDe15PourcentEtFidelite() {
         clientService.trouverParId("C2").get().setPointsFidelite(600);
         Commande c = commandeService.passerCommande("C2", Map.of("P1", 1), null);
-        assertEquals(85.0, c.getMontantTotal(), 0.01);
+        // 100 - 15% (argent) = 85, puis -15 (fidelite, car points >= 100) = 70
+        assertEquals(70.0, c.getMontantTotal(), 0.01);
     }
 
     @Test
-    void passerCommande_vipOr_appliqueRemiseDe20Pourcent() {
+    void passerCommande_vipOr_appliqueRemiseDe20PourcentEtFidelite() {
         clientService.trouverParId("C2").get().setPointsFidelite(1500);
         Commande c = commandeService.passerCommande("C2", Map.of("P1", 1), null);
-        assertEquals(80.0, c.getMontantTotal(), 0.01);
+        // 100 - 20% (or) = 80, puis -15 (fidelite, car points >= 100) = 65
+        assertEquals(65.0, c.getMontantTotal(), 0.01);
     }
 
     @Test
@@ -123,7 +125,8 @@ class CommandeServiceTest {
         Commande c = commandeService.passerCommande("C2", Map.of("P6", 1), null);
         // 200 - 10% (bronze) = 180, puis -15 fidelite = 165
         assertEquals(165.0, c.getMontantTotal(), 0.01);
-        assertEquals(50, vip.getPointsFidelite());
+        // Points consommes (150-100=50) puis nouveaux points gagnes sur cet achat (200/10=20) => 70
+        assertEquals(70, vip.getPointsFidelite());
     }
 
     @Test
