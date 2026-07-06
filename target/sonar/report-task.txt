@@ -3,5 +3,5 @@ projectKey=hananefaiz_gestion-commandes
 serverUrl=https://sonarcloud.io
 serverVersion=8.0.0.94954
 dashboardUrl=https://sonarcloud.io/dashboard?id=hananefaiz_gestion-commandes
-ceTaskId=AZ81Crhrt4u17BHSMg90
-ceTaskUrl=https://sonarcloud.io/api/ce/task?id=AZ81Crhrt4u17BHSMg90
+ceTaskId=AZ81F6-auqzSVrHnq3Ci
+ceTaskUrl=https://sonarcloud.io/api/ce/task?id=AZ81F6-auqzSVrHnq3Ci
