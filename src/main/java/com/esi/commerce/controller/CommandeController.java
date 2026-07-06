@@ -1,9 +1,7 @@
 package com.esi.commerce.controller;
 
 import com.esi.commerce.model.Commande;
-import com.esi.commerce.service.ClientService;
 import com.esi.commerce.service.CommandeService;
-import com.esi.commerce.service.ProduitService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -12,11 +10,7 @@ import java.util.Map;
 @RequestMapping("/api/commandes")
 public class CommandeController {
 
-    private final CommandeService commandeService;
-
-    public CommandeController(ProduitService produitService, ClientService clientService) {
-        this.commandeService = new CommandeService(produitService, clientService);
-    }
+    private final CommandeService commandeService = new CommandeService();
 
     @PostMapping
     public Commande passerCommande(@RequestParam String clientId, @RequestBody Map<String, Integer> panier,
@@ -25,7 +19,7 @@ public class CommandeController {
     }
 
     @PutMapping("/{id}/annuler")
-    public Commande annuler(@PathVariable String id) {
+    public boolean annuler(@PathVariable String id) {
         return commandeService.annulerCommande(id);
     }
 
