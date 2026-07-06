@@ -37,6 +37,7 @@ public class CommandeService {
 
         Commande commande = new Commande("C" + (commandes.size() + 1), client);
         double sousTotal = 0;
+        int poidsTotal = 0;
 
         for (Map.Entry<String, Integer> entree : panier.entrySet()) {
             Produit produit = null;
@@ -52,6 +53,7 @@ public class CommandeService {
                 if (produit.getStock() >= quantite) {
                     produit.setStock(produit.getStock() - quantite);
                     sousTotal = sousTotal + produit.getPrix() * quantite;
+                    poidsTotal = poidsTotal + quantite;
                     commande.ajouterLigne(new LigneCommande(produit, quantite));
                 } else {
                     System.out.println("Stock insuffisant pour " + produit.getNom());
@@ -60,11 +62,142 @@ public class CommandeService {
         }
 
         double total = sousTotal;
+
+        // Paliers de fidélité multiples (Bronze / Argent / Or / Platine) au lieu d'un simple VIP
         if (client.isEstVIP()) {
-            if (sousTotal > 500) {
-                total = total - (total * 0.10) - (total * 0.05);
+            if (client.getPointsFidelite() > 1000) {
+                if (sousTotal > 500) {
+                    total = total - (total * 0.20) - (total * 0.05);
+                } else {
+                    total = total - (total * 0.20);
+                }
+            } else if (client.getPointsFidelite() > 500) {
+                if (sousTotal > 500) {
+                    total = total - (total * 0.15) - (total * 0.05);
+                } else {
+                    total = total - (total * 0.15);
+                }
             } else {
-                total = total - (total * 0.10);
+                if (sousTotal > 500) {
+                    total = total - (total * 0.10) - (total * 0.05);
+                } else {
+                    total = total - (total * 0.10);
+                }
+            }
+        } else {
+            if (sousTotal > 500) {
+                total = total - (total * 0.05);
+            }
+        }
+
+        if (codePromo != null) {
+            if (codePromo.equals("PROMO10")) {
+                total = total - 10;
+            } else if (codePromo.equals("PROMO20")) {
+                total = total - 20;
+            } else if (codePromo.equals("PROMO50")) {
+                total = total - 50;
+            } else if (codePromo.equals("PROMONOEL")) {
+                if (sousTotal > 200) {
+                    total = total - 30;
+                } else {
+                    total = total - 15;
+                }
+            }
+        }
+
+        if (client.getPointsFidelite() >= 100) {
+            total = total - 15;
+            client.setPointsFidelite(client.getPointsFidelite() - 100);
+        }
+
+        // Frais de livraison selon le poids, avec paliers imbriqués (nouvelle source de complexité)
+        double fraisLivraison;
+        if (poidsTotal <= 1) {
+            fraisLivraison = 0;
+        } else if (poidsTotal <= 5) {
+            if (client.isEstVIP()) {
+                fraisLivraison = 2.5;
+            } else {
+                fraisLivraison = 5;
+            }
+        } else if (poidsTotal <= 10) {
+            if (client.isEstVIP()) {
+                fraisLivraison = 5;
+            } else {
+                fraisLivraison = 10;
+            }
+        } else {
+            if (client.isEstVIP()) {
+                fraisLivraison = 8;
+            } else {
+                fraisLivraison = 15;
+            }
+        }
+        total = total + fraisLivraison;
+        // BUG : le total peut devenir négatif si plusieurs réductions se cumulent
+        // (aucun plancher à 0 n'est appliqué)
+
+        int nouveauxPoints = (int) (sousTotal / 10);
+        client.setPointsFidelite(client.getPointsFidelite() + nouveauxPoints);
+
+        commande.setMontantTotal(total);
+        commande.setCodePromo(codePromo);
+        commande.setStatut("VALIDEE");
+        commandes.add(commande);
+        return commande;
+    }
+
+    // Méthode bis : génère un devis - duplique presque intégralement la logique de tarification
+    // de passerCommande() (source de duplication supplémentaire détectée par SonarQube)
+    public double genererDevis(String clientId, Map<String, Integer> panier, String codePromo) {
+        Client client = null;
+        for (int i = 0; i < clients.size(); i++) {
+            if (clients.get(i).getId().equals(clientId)) {
+                client = clients.get(i);
+            }
+        }
+        if (client == null) {
+            System.out.println("Client introuvable");
+            return 0;
+        }
+
+        double sousTotal = 0;
+        for (Map.Entry<String, Integer> entree : panier.entrySet()) {
+            Produit produit = null;
+            for (int i = 0; i < produits.size(); i++) {
+                if (produits.get(i).getId().equals(entree.getKey())) {
+                    produit = produits.get(i);
+                }
+            }
+            if (produit != null) {
+                int quantite = entree.getValue();
+                if (produit.getStock() >= quantite) {
+                    sousTotal = sousTotal + produit.getPrix() * quantite;
+                }
+            }
+        }
+
+        double total = sousTotal;
+        if (client.isEstVIP()) {
+            if (client.getPointsFidelite() > 1000) {
+                if (sousTotal > 500) {
+                    total = total - (total * 0.20) - (total * 0.05);
+                } else {
+                    total = total - (total * 0.20);
+                }
+            } else if (client.getPointsFidelite() > 500) {
+                if (sousTotal > 500) {
+                    total = total - (total * 0.15) - (total * 0.05);
+                } else {
+                    total = total - (total * 0.15);
+                }
+            } else {
+                if (sousTotal > 500) {
+                    total = total - (total * 0.10) - (total * 0.05);
+                } else {
+                    total = total - (total * 0.10);
+                }
             }
         } else {
             if (sousTotal > 500) {
@@ -81,22 +214,7 @@ public class CommandeService {
                 total = total - 50;
             }
         }
-
-        if (client.getPointsFidelite() >= 100) {
-            total = total - 15;
-            client.setPointsFidelite(client.getPointsFidelite() - 100);
-        }
-        // BUG : le total peut devenir négatif si plusieurs réductions se cumulent
-        // (aucun plancher à 0 n'est appliqué)
-
-        int nouveauxPoints = (int) (sousTotal / 10);
-        client.setPointsFidelite(client.getPointsFidelite() + nouveauxPoints);
-
-        commande.setMontantTotal(total);
-        commande.setCodePromo(codePromo);
-        commande.setStatut("VALIDEE");
-        commandes.add(commande);
-        return commande;
+        return total;
     }
 
     // Méthode 2 : duplique presque intégralement le calcul de prix de passerCommande
