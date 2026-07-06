@@ -21,4 +21,6 @@ public class Client {
     public boolean isEstVIP() { return estVIP; }
     public int getPointsFidelite() { return pointsFidelite; }
     public void setPointsFidelite(int p) { this.pointsFidelite = p; }
+    public void ajouterPoints(int p) { this.pointsFidelite += p; }
+    public void consommerPoints(int p) { this.pointsFidelite = Math.max(0, this.pointsFidelite - p); }
 }
