@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CommandeService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gestion-commandes</a> &gt; <a href="index.source.html" class="el_package">com.esi.commerce.service</a> &gt; <span class="el_source">CommandeService.java</span></div><h1>CommandeService.java</h1><pre class="source lang-java linenums">package com.esi.commerce.service;
+
+import com.esi.commerce.exception.CommandeDejaAnnuleeException;
+import com.esi.commerce.exception.CommandeIntrouvableException;
+import com.esi.commerce.exception.PanierVideException;
+import com.esi.commerce.exception.QuantiteInvalideException;
+import com.esi.commerce.model.Client;
+import com.esi.commerce.model.Commande;
+import com.esi.commerce.model.LigneCommande;
+import com.esi.commerce.model.Produit;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Service métier final : produits/clients séparés (SRP), exceptions dédiées,
+ * calcul de prix entièrement factorisé (0 duplication), toutes les règles
+ * métier enrichies conservées (paliers VIP, frais de livraison, devis).
+ */
+public class CommandeService {
+
+    public static final double REMISE_VIP_BRONZE = 0.10;
+    public static final double REMISE_VIP_ARGENT = 0.15;
+    public static final double REMISE_VIP_OR = 0.20;
+    public static final int SEUIL_POINTS_ARGENT = 500;
+    public static final int SEUIL_POINTS_OR = 1000;
+    public static final double REMISE_GROS_MONTANT = 0.05;
+    public static final double SEUIL_GROS_MONTANT = 500;
+    public static final int SEUIL_POINTS_FIDELITE = 100;
+    public static final double REMISE_FIDELITE = 15;
+    public static final int DIVISEUR_POINTS = 10;
+
+    private final ProduitService produitService;
+    private final ClientService clientService;
+<span class="fc" id="L36">    private final List&lt;Commande&gt; commandes = new ArrayList&lt;&gt;();</span>
+
+<span class="fc" id="L38">    public CommandeService(ProduitService produitService, ClientService clientService) {</span>
+<span class="fc" id="L39">        this.produitService = produitService;</span>
+<span class="fc" id="L40">        this.clientService = clientService;</span>
+<span class="fc" id="L41">    }</span>
+
+    public Commande passerCommande(String clientId, Map&lt;String, Integer&gt; panier, String codePromo) {
+<span class="pc bpc" id="L44" title="1 of 4 branches missed.">        if (panier == null || panier.isEmpty()) {</span>
+<span class="fc" id="L45">            throw new PanierVideException();</span>
+        }
+<span class="fc" id="L47">        Client client = clientService.trouverOuLever(clientId);</span>
+<span class="fc" id="L48">        Commande commande = new Commande(&quot;C&quot; + (commandes.size() + 1), client);</span>
+
+<span class="fc" id="L50">        LignesResultat resultat = remplirLignes(panier, commande);</span>
+<span class="fc" id="L51">        double total = calculerMontantFinal(client, resultat.sousTotal, codePromo);</span>
+<span class="fc" id="L52">        total += calculerFraisLivraison(resultat.poidsTotal, client);</span>
+<span class="fc" id="L53">        total = Math.max(0, total);</span>
+
+<span class="fc" id="L55">        client.ajouterPoints((int) (resultat.sousTotal / DIVISEUR_POINTS));</span>
+<span class="fc" id="L56">        commande.setMontantTotal(total);</span>
+<span class="fc" id="L57">        commande.setCodePromo(codePromo);</span>
+<span class="fc" id="L58">        commande.setStatut(&quot;VALIDEE&quot;);</span>
+<span class="fc" id="L59">        commandes.add(commande);</span>
+<span class="fc" id="L60">        return commande;</span>
+    }
+
+    public double genererDevis(String clientId, Map&lt;String, Integer&gt; panier, String codePromo) {
+<span class="fc" id="L64">        Client client = clientService.trouverOuLever(clientId);</span>
+<span class="fc" id="L65">        double sousTotal = 0;</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">        if (panier != null) {</span>
+<span class="fc bfc" id="L67" title="All 2 branches covered.">            for (Map.Entry&lt;String, Integer&gt; entree : panier.entrySet()) {</span>
+<span class="fc" id="L68">                var produit = produitService.trouverParId(entree.getKey());</span>
+<span class="pc bpc" id="L69" title="2 of 4 branches missed.">                if (produit.isPresent() &amp;&amp; produit.get().getStock() &gt;= entree.getValue()) {</span>
+<span class="fc" id="L70">                    sousTotal += produit.get().getPrix() * entree.getValue();</span>
+                }
+<span class="fc" id="L72">            }</span>
+        }
+<span class="fc" id="L74">        return Math.max(0, calculerMontantFinal(client, sousTotal, codePromo));</span>
+    }
+
+    public Commande modifierCommande(String commandeId, Map&lt;String, Integer&gt; nouveauPanier) {
+<span class="fc" id="L78">        Commande commande = trouverCommandeOuLever(commandeId);</span>
+<span class="fc" id="L79">        LignesResultat resultat = remplirLignes(nouveauPanier, commande);</span>
+<span class="fc" id="L80">        double total = calculerMontantFinal(commande.getClient(), resultat.sousTotal, commande.getCodePromo());</span>
+<span class="fc" id="L81">        commande.setMontantTotal(Math.max(0, total));</span>
+<span class="fc" id="L82">        return commande;</span>
+    }
+
+    public Commande annulerCommande(String commandeId) {
+<span class="fc" id="L86">        Commande commande = trouverCommandeOuLever(commandeId);</span>
+<span class="fc bfc" id="L87" title="All 2 branches covered.">        if (&quot;ANNULEE&quot;.equals(commande.getStatut())) {</span>
+<span class="fc" id="L88">            throw new CommandeDejaAnnuleeException(commandeId);</span>
+        }
+<span class="fc bfc" id="L90" title="All 2 branches covered.">        for (LigneCommande ligne : commande.getLignes()) {</span>
+<span class="fc" id="L91">            Produit produit = ligne.getProduit();</span>
+<span class="fc" id="L92">            produit.setStock(produit.getStock() + ligne.getQuantite());</span>
+<span class="fc" id="L93">        }</span>
+<span class="fc" id="L94">        commande.setStatut(&quot;ANNULEE&quot;);</span>
+<span class="fc" id="L95">        return commande;</span>
+    }
+
+    public double calculerMoyennePanier(String clientId) {
+<span class="fc" id="L99">        List&lt;Commande&gt; commandesDuClient = commandes.stream()</span>
+<span class="fc" id="L100">                .filter(c -&gt; c.getClient().getId().equals(clientId))</span>
+<span class="fc" id="L101">                .toList();</span>
+<span class="fc bfc" id="L102" title="All 2 branches covered.">        if (commandesDuClient.isEmpty()) {</span>
+<span class="fc" id="L103">            return 0.0;</span>
+        }
+<span class="fc" id="L105">        double total = commandesDuClient.stream().mapToDouble(Commande::getMontantTotal).sum();</span>
+<span class="fc" id="L106">        return total / commandesDuClient.size();</span>
+    }
+
+<span class="nc" id="L109">    public List&lt;Commande&gt; getCommandes() { return List.copyOf(commandes); }</span>
+
+    // ---- Logique factorisée, partagée par passerCommande(), genererDevis() et modifierCommande() ----
+
+    private LignesResultat remplirLignes(Map&lt;String, Integer&gt; panier, Commande commande) {
+<span class="fc" id="L114">        double sousTotal = 0;</span>
+<span class="fc" id="L115">        int poidsTotal = 0;</span>
+<span class="fc bfc" id="L116" title="All 2 branches covered.">        for (Map.Entry&lt;String, Integer&gt; entree : panier.entrySet()) {</span>
+<span class="fc" id="L117">            String produitId = entree.getKey();</span>
+<span class="fc" id="L118">            int quantite = entree.getValue();</span>
+<span class="fc bfc" id="L119" title="All 2 branches covered.">            if (quantite &lt;= 0) {</span>
+<span class="fc" id="L120">                throw new QuantiteInvalideException(produitId, quantite);</span>
+            }
+<span class="fc" id="L122">            Produit produit = produitService.trouverDisponibleOuLever(produitId, quantite);</span>
+<span class="fc" id="L123">            produit.setStock(produit.getStock() - quantite);</span>
+<span class="fc" id="L124">            sousTotal += produit.getPrix() * quantite;</span>
+<span class="fc" id="L125">            poidsTotal += quantite;</span>
+<span class="fc" id="L126">            commande.ajouterLigne(new LigneCommande(produit, quantite));</span>
+<span class="fc" id="L127">        }</span>
+<span class="fc" id="L128">        return new LignesResultat(sousTotal, poidsTotal);</span>
+    }
+
+    private double calculerMontantFinal(Client client, double sousTotal, String codePromo) {
+<span class="fc" id="L132">        double total = appliquerRemiseVipEtVolume(client, sousTotal);</span>
+<span class="fc" id="L133">        total = appliquerCodePromo(total, codePromo);</span>
+<span class="fc" id="L134">        return appliquerRemiseFidelite(client, total);</span>
+    }
+
+    private double appliquerRemiseVipEtVolume(Client client, double sousTotal) {
+<span class="fc" id="L138">        double remise = 0;</span>
+<span class="fc bfc" id="L139" title="All 2 branches covered.">        if (client.isEstVIP()) {</span>
+<span class="fc bfc" id="L140" title="All 2 branches covered.">            if (client.getPointsFidelite() &gt; SEUIL_POINTS_OR) {</span>
+<span class="fc" id="L141">                remise = REMISE_VIP_OR;</span>
+<span class="fc bfc" id="L142" title="All 2 branches covered.">            } else if (client.getPointsFidelite() &gt; SEUIL_POINTS_ARGENT) {</span>
+<span class="fc" id="L143">                remise = REMISE_VIP_ARGENT;</span>
+            } else {
+<span class="fc" id="L145">                remise = REMISE_VIP_BRONZE;</span>
+            }
+        }
+<span class="fc bfc" id="L148" title="All 2 branches covered.">        if (sousTotal &gt; SEUIL_GROS_MONTANT) {</span>
+<span class="fc" id="L149">            remise += REMISE_GROS_MONTANT;</span>
+        }
+<span class="fc" id="L151">        return sousTotal - (sousTotal * remise);</span>
+    }
+
+    private double appliquerCodePromo(double total, String codePromo) {
+<span class="fc bfc" id="L155" title="All 2 branches covered.">        if (codePromo == null) {</span>
+<span class="fc" id="L156">            return total;</span>
+        }
+<span class="pc bpc" id="L158" title="2 of 5 branches missed.">        return switch (codePromo) {</span>
+<span class="nc" id="L159">            case &quot;PROMO10&quot; -&gt; total - 10;</span>
+<span class="fc" id="L160">            case &quot;PROMO20&quot; -&gt; total - 20;</span>
+<span class="fc" id="L161">            case &quot;PROMO50&quot; -&gt; total - 50;</span>
+<span class="fc bfc" id="L162" title="All 2 branches covered.">            case &quot;PROMONOEL&quot; -&gt; total - (total &gt; 200 ? 30 : 15);</span>
+<span class="nc" id="L163">            default -&gt; total;</span>
+        };
+    }
+
+    private double appliquerRemiseFidelite(Client client, double total) {
+<span class="fc bfc" id="L168" title="All 2 branches covered.">        if (client.getPointsFidelite() &gt;= SEUIL_POINTS_FIDELITE) {</span>
+<span class="fc" id="L169">            client.consommerPoints(SEUIL_POINTS_FIDELITE);</span>
+<span class="fc" id="L170">            return total - REMISE_FIDELITE;</span>
+        }
+<span class="fc" id="L172">        return total;</span>
+    }
+
+    private double calculerFraisLivraison(int poidsTotal, Client client) {
+<span class="fc bfc" id="L176" title="All 2 branches covered.">        if (poidsTotal &lt;= 1) return 0;</span>
+<span class="pc bpc" id="L177" title="1 of 4 branches missed.">        if (poidsTotal &lt;= 5) return client.isEstVIP() ? 2.5 : 5;</span>
+<span class="pc bpc" id="L178" title="2 of 4 branches missed.">        if (poidsTotal &lt;= 10) return client.isEstVIP() ? 5 : 10;</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">        return client.isEstVIP() ? 8 : 15;</span>
+    }
+
+    private Commande trouverCommandeOuLever(String commandeId) {
+<span class="fc" id="L183">        return commandes.stream()</span>
+<span class="fc" id="L184">                .filter(c -&gt; c.getId().equals(commandeId))</span>
+<span class="fc" id="L185">                .findFirst()</span>
+<span class="fc" id="L186">                .orElseThrow(() -&gt; new CommandeIntrouvableException(commandeId));</span>
+    }
+
+<span class="fc" id="L189">    private record LignesResultat(double sousTotal, int poidsTotal) {}</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>
